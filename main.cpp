@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 #include <iomanip>
+#include <functional>
 #include "process.h"
 #include "simulator.h"
 #include "fcfs.h"
@@ -27,11 +28,9 @@ void printGanttWithNames(const SimResult& r, Scheduler& sched) {
         int pid = interval.first;
         std::uint64_t start = interval.second.first;
         std::uint64_t end = interval.second.second;
-        if (pid == -1) {
-            std::cout << "  [" << start << "-" << end << ") IDLE\n";
-        } else if (pid == -2) {
-            std::cout << "  [" << start << "-" << end << ") CS\n";
-        } else {
+        if (pid == -1) std::cout << "  [" << start << "-" << end << ") IDLE\n";
+        else if (pid == -2) std::cout << "  [" << start << "-" << end << ") CS\n";
+        else {
             Process* p = sched.find(pid);
             std::string name = p ? p->name : ("P" + std::to_string(pid));
             std::cout << "  [" << start << "-" << end << ") " << name << "\n";
@@ -42,16 +41,24 @@ void printGanttWithNames(const SimResult& r, Scheduler& sched) {
 std::vector<Process> makeTestSet() {
     std::vector<Process> procs;
     auto add = [&](int pid, std::string name, std::uint64_t arrival, std::uint64_t burst, int priority) {
-        Process p;
-        p.pid = pid; p.name = name; p.arrivalTime = arrival;
-        p.burstTime = burst; p.remainingTime = burst;
-        p.priority = priority; p.dynamicPriority = priority;
+        Process p; p.pid = pid; p.name = name; p.arrivalTime = arrival;
+        p.burstTime = burst; p.remainingTime = burst; p.priority = priority; p.dynamicPriority = priority;
         procs.push_back(p);
     };
-    add(1, "P1", 0, 8, 3);
-    add(2, "P2", 1, 4, 4);
-    add(3, "P3", 2, 9, 1);
-    add(4, "P4", 3, 5, 2);
+    add(1, "P1", 0, 8, 3); add(2, "P2", 1, 4, 4); add(3, "P3", 2, 9, 1); add(4, "P4", 3, 5, 2);
+    return procs;
+}
+
+std::vector<Process> makeConvoySet() {
+    std::vector<Process> procs;
+    auto add = [&](int pid, const std::string& name, std::uint64_t arrival, std::uint64_t burst, int priority, std::vector<IoBlock> io = {}) {
+        Process p; p.pid = pid; p.name = name; p.arrivalTime = arrival; p.burstTime = burst; p.remainingTime = burst;
+        p.priority = priority; p.dynamicPriority = priority; p.ioBlocks = std::move(io); procs.push_back(p);
+    };
+    add(1, "CPU1", 0, 20, 2);
+    add(2, "IO1",  1,  6, 1, {{1, 4}, {2, 4}, {3, 4}, {4, 4}, {5, 4}});
+    add(3, "IO2",  2,  6, 1, {{1, 4}, {2, 4}, {3, 4}, {4, 4}, {5, 4}});
+    add(4, "CPU2", 3, 12, 3);
     return procs;
 }
 
@@ -86,23 +93,67 @@ int main() {
         }
     }
 
-    // Задание 5: Влияние размера кванта в RR (стоимость переключения = 0)
+    // Задание 5: Влияние размера кванта в RR
     {
-        std::cout << "\n=== Задание 5: Влияние кванта в RR (набор makeTestSet) ===\n";
+        std::cout << "\n=== Задание 5: Влияние кванта в RR ===\n";
         std::cout << "q   wait   turn   resp   CS   график переключений\n";
         std::cout << "------------------------------------------------------\n";
         for (std::uint64_t q : {1, 2, 4, 8, 16}) {
-            auto set = makeTestSet();
-            RrScheduler rr(set, q);
-            SimResult r = runSimulation(rr, 100000, 0); // запуск с switchCost = 0
-            
-            std::cout << std::setw(2) << q << "  " 
-                      << std::fixed << std::setprecision(2)
-                      << std::setw(5) << r.avgWaiting << "  " 
-                      << std::setw(5) << r.avgTurnaround << "  " 
-                      << std::setw(5) << r.avgResponse << "  "
-                      << std::setw(3) << r.contextSwitches << "  "
+            auto set = makeTestSet(); RrScheduler rr(set, q); SimResult r = runSimulation(rr, 100000, 0);
+            std::cout << std::setw(2) << q << "  " << std::fixed << std::setprecision(2)
+                      << std::setw(5) << r.avgWaiting << "  " << std::setw(5) << r.avgTurnaround << "  " 
+                      << std::setw(5) << r.avgResponse << "  " << std::setw(3) << r.contextSwitches << "  "
                       << std::string(r.contextSwitches, '#') << "\n";
+        }
+    }
+
+    // Задание 6: Исследование эффекта конвоя
+    {
+        std::cout << "\n=== Задание 6: Исследование эффекта конвоя ===\n";
+        auto runAndPrint = [](std::string label, auto make_sched) {
+            auto set = makeConvoySet(); auto sched = make_sched(set); SimResult r = runSimulation(*sched, 100000, 0);
+            std::cout << std::left << std::setw(30) << label << " | wait=" << std::fixed << std::setprecision(2) << std::setw(6) << r.avgWaiting << " | turn=" << std::setw(6) << r.avgTurnaround << "%\n";
+        };
+        runAndPrint("FCFS", [](auto& s) { return std::make_unique<FcfsScheduler>(s); });
+        runAndPrint("SRTN", [](auto& s) { return std::make_unique<SrtnScheduler>(s); });
+        runAndPrint("RR (q=4)", [](auto& s) { return std::make_unique<RrScheduler>(s, 4); });
+        runAndPrint("Priority (preemptive) + aging", [](auto& s) { return std::make_unique<PriorityScheduler>(s, true, true); });
+        runAndPrint("MLFQ", [](auto& s) { return std::make_unique<MlfqScheduler>(s); });
+    }
+
+    // Задание 10: Сравнение алгоритмов на 5 случайных наборах процессов
+    {
+        std::cout << "\n=== Задание 10: Сводное сравнение среднего времени ожидания ===\n";
+        using Factory = std::function<std::unique_ptr<Scheduler>(const std::vector<Process>&)>;
+
+        std::vector<std::pair<std::string, Factory>> algos = {
+            {"FCFS",       [](const auto& s){ return std::make_unique<FcfsScheduler>(s); }},
+            {"SJF",        [](const auto& s){ return std::make_unique<SjfScheduler>(s); }},
+            {"SRTN",       [](const auto& s){ return std::make_unique<SrtnScheduler>(s); }},
+            {"HRRN",       [](const auto& s){ return std::make_unique<HrrnScheduler>(s); }},
+            {"RR q=4",     [](const auto& s){ return std::make_unique<RrScheduler>(s, 4); }},
+            {"Prio",       [](const auto& s){ return std::make_unique<PriorityScheduler>(s, false, false); }},
+            {"Prio+aging", [](const auto& s){ return std::make_unique<PriorityScheduler>(s, true, true); }},
+            {"MLFQ",       [](const auto& s){ return std::make_unique<MlfqScheduler>(s); }}
+        };
+        const int sizes[5] = {12, 14, 16, 18, 20};
+
+        std::cout << std::left << std::setw(12) << "Algorithm" << std::right;
+        for (int i = 1; i <= 5; ++i) std::cout << std::setw(9) << "set " + std::to_string(i);
+        std::cout << std::setw(9) << "average" << "\n";
+        std::cout << "----------------------------------------------------------------------\n";
+
+        for (auto& [label, make] : algos) {
+            std::cout << std::left << std::setw(12) << label << std::right;
+            double sum = 0;
+            for (unsigned seed = 1; seed <= 5; ++seed) {
+                auto set = makeRandomSet(seed, sizes[seed - 1]);
+                auto sched = make(set);
+                SimResult r = runSimulation(*sched, 100000, 0);
+                sum += r.avgWaiting;
+                std::cout << std::setw(9) << std::fixed << std::setprecision(2) << r.avgWaiting;
+            }
+            std::cout << std::setw(9) << sum / 5 << "\n";
         }
     }
 
