@@ -1,3 +1,4 @@
+#include "testsets.h"
 #include "fcfs.h"
 #include "sjf.h"
 #include "srtn.h"
@@ -122,6 +123,40 @@ int main() {
 	  std::cout << "\nПо процессам, RR (q=2):\n";
 	  printProcessTable(rr.processes());
 	}
+	{
+	  auto set = makeTestSet();
+	  saveSet("set_basic.txt", set);
 
+	  std::vector<Process> loaded;
+	  if (!loadSet("set_basic.txt", loaded)) {
+	    std::cerr << "Не удалось загрузить set_basic.txt\n";
+	    return 1;
+	  }
+	  FcfsScheduler a(set), b(loaded);
+	  printResult(runSimulation(a));
+  	printResult(runSimulation(b));   // строки должны совпасть
+	}
+
+  
+  // Задание 8
+  {
+    auto set = makeTestSet();
+    RrScheduler rr(set, 2);
+    SimResult r = runSimulation(rr);
+    std::cout << "\nПо процессам, RR (q=2):\n";
+    printProcessTable(rr.processes());
+  }
+
+  // Задание 13
+  {
+    auto set = makeTestSet();
+    saveSet("set_basic.txt", set);
+    std::vector<Process> loaded;
+    if (loadSet("set_basic.txt", loaded)) {
+      FcfsScheduler a(set), b(loaded);
+      printResult(runSimulation(a));
+      printResult(runSimulation(b));
+    }
+  }
   return 0;
 }
