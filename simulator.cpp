@@ -1,5 +1,4 @@
 #include "simulator.h"
-#include <iostream>
 #include <algorithm>
 
 SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t switchCost) {
@@ -12,12 +11,10 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
     std::uint64_t busyTicks = 0;
     std::uint64_t tick = 0;
     
-    // Переменные для переключения контекста (Задание 4)
     std::uint64_t switchLeft = 0;
     std::uint64_t overheadTicks = 0;
     
     while (tick < maxTicks) {
-        // 1. Возврат из ввода-вывода
         for (auto& p : procs) {
             if (p.state == ProcessState::WAITING && tick >= p.ioReturnTick) {
                 p.state = ProcessState::READY;
@@ -25,7 +22,6 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
             }
         }
         
-        // 2. Проверка завершения всех процессов
         bool allDone = true;
         for (const auto& p : procs) {
             if (!p.isFinished()) {
@@ -35,10 +31,8 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
         }
         if (allDone) break;
         
-        // 3. Уведомление планировщика о новом такте
         sched.onTick(tick);
         
-        // 4. Вытеснение текущего процесса
         if (currentPid != -1 && switchLeft == 0) {
             if (sched.shouldPreempt(currentPid, tick)) {
                 Process* p = sched.find(currentPid);
@@ -50,7 +44,6 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
             }
         }
         
-        // 5. Выбор следующего процесса, если процессор свободен
         if (currentPid == -1 && switchLeft == 0) {
             currentPid = sched.pickNext(tick);
             if (currentPid != -1) {
@@ -66,15 +59,13 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
             }
         }
         
-        // Проверка смены процесса для запуска таймера накладных расходов (Задание 4)
         if (prevPid != currentPid) {
             res.contextSwitches++;
             if (switchCost > 0 && prevPid != -1) { 
-                switchLeft = switchCost; // Накладные расходы включаются при реальной смене задач
+                switchLeft = switchCost; 
             }
         }
         
-        // 7. Выполняем один такт или тратим его на переключение контекста
         int ranPid = -1;
         bool overheadTick = (currentPid != -1 && switchLeft > 0);
         
@@ -92,7 +83,6 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
                 
                 if (p->nextIoIndex < p->ioBlocks.size() &&
                     p->executedTicks == p->ioBlocks[p->nextIoIndex].atTick) {
-                    
                     p->state = ProcessState::WAITING;
                     p->ioReturnTick = tick + 1 + p->ioBlocks[p->nextIoIndex].duration;
                     p->nextIoIndex++;
@@ -109,32 +99,21 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
             }
         }
         
-        // Накопление времени ожидания в READY
         for (auto& p : procs) {
             if (p.state == ProcessState::READY) {
                 p.waitingTime++;
             }
         }
         
-        // 8. Запись в диаграмму Ганта
         if (overheadTick) {
-            if (!res.gantt.empty() && res.gantt.back().first == -2) {
-                res.gantt.back().second.second = tick + 1;
-            } else {
-                res.gantt.push_back({-2, {tick, tick + 1}});
-            }
+            if (!res.gantt.empty() && res.gantt.back().first == -2) res.gantt.back().second.second = tick + 1;
+            else res.gantt.push_back({-2, {tick, tick + 1}});
         } else if (ranPid != -1) {
-            if (!res.gantt.empty() && res.gantt.back().first == ranPid) {
-                res.gantt.back().second.second = tick + 1;
-            } else {
-                res.gantt.push_back({ranPid, {tick, tick + 1}});
-            }
+            if (!res.gantt.empty() && res.gantt.back().first == ranPid) res.gantt.back().second.second = tick + 1;
+            else res.gantt.push_back({ranPid, {tick, tick + 1}});
         } else {
-            if (!res.gantt.empty() && res.gantt.back().first == -1) {
-                res.gantt.back().second.second = tick + 1;
-            } else {
-                res.gantt.push_back({-1, {tick, tick + 1}});
-            }
+            if (!res.gantt.empty() && res.gantt.back().first == -1) res.gantt.back().second.second = tick + 1;
+            else res.gantt.push_back({-1, {tick, tick + 1}});
         }
         
         prevPid = overheadTick ? currentPid : ranPid;
@@ -151,11 +130,10 @@ SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks, std::uint64_t 
     res.avgWaiting = totalWait / procs.size();
     res.avgTurnaround = totalTurn / procs.size();
     res.avgResponse = totalResp / procs.size();
-    
-    // Итоги по накладным расходам (Задание 4)
     res.overheadTicks = overheadTicks;
     res.cpuUtilization = tick > 0 ? (100.0 * busyTicks / tick) : 0.0;
     res.overheadPercent = tick > 0 ? (100.0 * overheadTicks / tick) : 0.0;
+    res.totalTicks = tick;
     
     return res;
 }

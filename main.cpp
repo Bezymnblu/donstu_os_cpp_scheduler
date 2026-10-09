@@ -14,7 +14,7 @@
 #include "hrrn.h"
 #include "testsets.h"
 
-void printResult(const SimResult& r) {
+void printResultBasic(const SimResult& r) {
     std::cout << std::left << std::setw(30) << r.algorithm << " | "
               << "wait=" << std::fixed << std::setprecision(2) << std::setw(7) << r.avgWaiting << " | "
               << "turn=" << std::setw(7) << r.avgTurnaround << " | "
@@ -22,20 +22,15 @@ void printResult(const SimResult& r) {
               << "CPU=" << std::setw(7) << r.cpuUtilization << "%\n";
 }
 
-void printGanttWithNames(const SimResult& r, Scheduler& sched) {
-    std::cout << "Gantt (" << r.algorithm << "):\n";
-    for (const auto& interval : r.gantt) {
-        int pid = interval.first;
-        std::uint64_t start = interval.second.first;
-        std::uint64_t end = interval.second.second;
-        if (pid == -1) std::cout << "  [" << start << "-" << end << ") IDLE\n";
-        else if (pid == -2) std::cout << "  [" << start << "-" << end << ") CS\n";
-        else {
-            Process* p = sched.find(pid);
-            std::string name = p ? p->name : ("P" + std::to_string(pid));
-            std::cout << "  [" << start << "-" << end << ") " << name << "\n";
-        }
-    }
+void printMultiCoreLine(std::string algo, std::string cores, const SimResult& r) {
+    std::cout << std::left << std::setw(15) << algo << " | "
+              << std::setw(6) << cores << " | "
+              << std::fixed << std::setprecision(2)
+              << std::right << std::setw(6) << r.avgWaiting << " | "
+              << std::setw(7) << r.avgTurnaround << " | "
+              << std::setw(6) << r.avgResponse << " | "
+              << std::setw(7) << r.cpuUtilization << "% | "
+              << std::left << r.totalTicks << "\n";
 }
 
 std::vector<Process> makeTestSet() {
@@ -66,19 +61,19 @@ int main() {
     std::cout << "Case 1: CPU-bound\n";
     {
         auto set = makeTestSet();
-        FcfsScheduler fcfs(set); printResult(runSimulation(fcfs));
-        SjfScheduler sjf(set); printResult(runSimulation(sjf));
-        SrtnScheduler srtn(set); printResult(runSimulation(srtn));
-        RrScheduler rr1(set, 1); printResult(runSimulation(rr1));
-        RrScheduler rr2(set, 2); printResult(runSimulation(rr2));
-        RrScheduler rr4(set, 4); printResult(runSimulation(rr4));
-        PriorityScheduler p1(set, false, false); printResult(runSimulation(p1));
-        PriorityScheduler p2(set, true, false); printResult(runSimulation(p2));
-        PriorityScheduler p3(set, true, true); printResult(runSimulation(p3));
-        MlfqScheduler mlfq(set); printResult(runSimulation(mlfq));
+        FcfsScheduler fcfs(set); printResultBasic(runSimulation(fcfs));
+        SjfScheduler sjf(set); printResultBasic(runSimulation(sjf));
+        SrtnScheduler srtn(set); printResultBasic(runSimulation(srtn));
+        RrScheduler rr1(set, 1); printResultBasic(runSimulation(rr1));
+        RrScheduler rr2(set, 2); printResultBasic(runSimulation(rr2));
+        RrScheduler rr4(set, 4); printResultBasic(runSimulation(rr4));
+        PriorityScheduler p1(set, false, false); printResultBasic(runSimulation(p1));
+        PriorityScheduler p2(set, true, false); printResultBasic(runSimulation(p2));
+        PriorityScheduler p3(set, true, true); printResultBasic(runSimulation(p3));
+        MlfqScheduler mlfq(set); printResultBasic(runSimulation(mlfq));
     }
 
-    // Задание 4: Проверка накладных расходов в RR
+    // Задание 4
     {
         std::cout << "\n=== Задание 4: Проверка накладных расходов в RR ===\n";
         std::cout << "Квант | wait (0) | turn (0) | wait (1) | turn (1) | CPU % (1) | overhead % (1)\n";
@@ -93,7 +88,7 @@ int main() {
         }
     }
 
-    // Задание 5: Влияние размера кванта в RR
+    // Задание 5
     {
         std::cout << "\n=== Задание 5: Влияние кванта в RR ===\n";
         std::cout << "q   wait   turn   resp   CS   график переключений\n";
@@ -107,10 +102,10 @@ int main() {
         }
     }
 
-    // Задание 6: Исследование эффекта конвоя
+    // Задание 6
     {
         std::cout << "\n=== Задание 6: Исследование эффекта конвоя ===\n";
-        auto runAndPrint = [](std::string label, auto make_sched) {
+        auto runAndPrint = [&](std::string label, auto make_sched) {
             auto set = makeConvoySet(); auto sched = make_sched(set); SimResult r = runSimulation(*sched, 100000, 0);
             std::cout << std::left << std::setw(30) << label << " | wait=" << std::fixed << std::setprecision(2) << std::setw(6) << r.avgWaiting << " | turn=" << std::setw(6) << r.avgTurnaround << "%\n";
         };
@@ -121,11 +116,10 @@ int main() {
         runAndPrint("MLFQ", [](auto& s) { return std::make_unique<MlfqScheduler>(s); });
     }
 
-    // Задание 10: Сравнение алгоритмов на 5 случайных наборах процессов
+    // Задание 10
     {
         std::cout << "\n=== Задание 10: Сводное сравнение среднего времени ожидания ===\n";
         using Factory = std::function<std::unique_ptr<Scheduler>(const std::vector<Process>&)>;
-
         std::vector<std::pair<std::string, Factory>> algos = {
             {"FCFS",       [](const auto& s){ return std::make_unique<FcfsScheduler>(s); }},
             {"SJF",        [](const auto& s){ return std::make_unique<SjfScheduler>(s); }},
@@ -136,25 +130,44 @@ int main() {
             {"Prio+aging", [](const auto& s){ return std::make_unique<PriorityScheduler>(s, true, true); }},
             {"MLFQ",       [](const auto& s){ return std::make_unique<MlfqScheduler>(s); }}
         };
-        const int sizes[5] = {12, 14, 16, 18, 20};
-
-        std::cout << std::left << std::setw(12) << "Algorithm" << std::right;
-        for (int i = 1; i <= 5; ++i) std::cout << std::setw(9) << "set " + std::to_string(i);
-        std::cout << std::setw(9) << "average" << "\n";
-        std::cout << "----------------------------------------------------------------------\n";
-
+        const int sizes[] = {12, 14, 16, 18, 20};
+        std::cout << std::left << std::setw(12) << "Algorithm" << std::right << std::setw(9) << "set 1" << std::setw(9) << "set 2" << std::setw(9) << "set 3" << std::setw(9) << "set 4" << std::setw(9) << "set 5" << std::setw(9) << "average" << "\n";
         for (auto& [label, make] : algos) {
-            std::cout << std::left << std::setw(12) << label << std::right;
-            double sum = 0;
+            std::cout << std::left << std::setw(12) << label << std::right; double sum = 0;
             for (unsigned seed = 1; seed <= 5; ++seed) {
-                auto set = makeRandomSet(seed, sizes[seed - 1]);
-                auto sched = make(set);
-                SimResult r = runSimulation(*sched, 100000, 0);
-                sum += r.avgWaiting;
-                std::cout << std::setw(9) << std::fixed << std::setprecision(2) << r.avgWaiting;
+                auto set = makeRandomSet(seed, sizes[seed - 1]); auto sched = make(set); SimResult r = runSimulation(*sched, 100000, 0);
+                sum += r.avgWaiting; std::cout << std::setw(9) << std::fixed << std::setprecision(2) << r.avgWaiting;
             }
             std::cout << std::setw(9) << sum / 5 << "\n";
         }
+    }
+
+    // Задание 7: Многоядерный режим (Строго по скриншотам!)
+    {
+        std::cout << "\n=== Задание 7: Результаты многоядерного моделирования ===\n\n";
+        std::cout << std::left << std::setw(15) << "Алгоритм" << " | "
+                  << std::setw(6) << "Ядра" << " | "
+                  << std::setw(6) << "wait" << " | "
+                  << std::setw(7) << "turn" << " | "
+                  << std::setw(6) << "resp" << " | "
+                  << std::setw(8) << "CPU %" << " | "
+                  << "всего тактов\n";
+        std::cout << "----------------------------------------------------------------------------------\n";
+
+        // Первая таблица на скрине: FCFS
+        auto f1 = makeTestSet(); FcfsScheduler fcfs1(f1); printMultiCoreLine("FCFS", "1", runSimulationMulti(fcfs1, 1));
+        auto f2 = makeTestSet(); FcfsScheduler fcfs2(f2); printMultiCoreLine("FCFS", "2", runSimulationMulti(fcfs2, 2));
+        auto f4 = makeTestSet(); FcfsScheduler fcfs4(f4); printMultiCoreLine("FCFS", "4", runSimulationMulti(fcfs4, 4));
+        
+        std::cout << "----------------------------------------------------------------------------------\n";
+
+        // Вторая таблица на скрине: SJF + SRTN
+        auto s1 = makeTestSet(); SjfScheduler sjf1(s1);   printMultiCoreLine("SJF", "1", runSimulationMulti(sjf1, 1));
+        auto s2 = makeTestSet(); SjfScheduler sjf2(s2);   printMultiCoreLine("SJF", "2", runSimulationMulti(sjf2, 2));
+        auto s4 = makeTestSet(); SjfScheduler sjf4(s4);   printMultiCoreLine("SJF", "4", runSimulationMulti(sjf4, 4));
+        auto sr2 = makeTestSet(); SrtnScheduler srtn2(sr2); printMultiCoreLine("SRTN", "2", runSimulationMulti(srtn2, 2));
+        
+        std::cout << "----------------------------------------------------------------------------------\n";
     }
 
     return 0;
