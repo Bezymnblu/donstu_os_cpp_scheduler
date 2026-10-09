@@ -42,7 +42,7 @@ struct Process {
   int priority = 0;
   // список I/O-блокировок
   std::vector<IoBlock> ioBlocks;
-
+  bool started = false;
   // Метрики (заполняются симулятором)
   // момент первого запуска
   std::uint64_t startTime = 0;
