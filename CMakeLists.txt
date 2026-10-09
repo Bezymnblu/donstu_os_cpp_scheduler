@@ -5,7 +5,7 @@ project(donstu_os_cpp_scheduler LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(donstu_os_cpp_scheduler main.cpp
+add_executable(donstu_os_cpp_scheduler hrrn.h main.cpp
     process.h
     scheduler.h
     fcfs.h

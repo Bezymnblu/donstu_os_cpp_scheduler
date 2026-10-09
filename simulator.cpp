@@ -1,154 +1,130 @@
 #include "simulator.h"
+#include <iostream>
+#include <algorithm>
 
 SimResult runSimulation(Scheduler& sched, std::uint64_t maxTicks) {
-  SimResult res;
-  res.algorithm = sched.name();
-
-  std::uint64_t tick = 0;
-  int currentPid = -1;
-  int prevPid = -1;
-  std::uint64_t busyTicks = 0;
-
-  auto& procs = sched.processes();
-
-  while (tick < maxTicks) {
-    // 1. Возвращаем процессы из I/O
-    for (auto& p : procs) {
-      if (p.state == ProcessState::WAITING && p.ioReturnTick <= tick) {
-        p.state = ProcessState::READY;
-        sched.onProcessReady(p.pid, tick);
-      }
-    }
-
-    // 2. Накапливаем waitingTime для процессов в READY
-//    for (auto& p : procs) {
-//      if (p.state == ProcessState::READY) {
-//        p.waitingTime++;
-//      }
-//    }
-
-    // 3. Все ли завершены?
-    bool allDone = true;
-    for (auto& p : procs) {
-      if (p.state != ProcessState::TERMINATED) { allDone = false; break; }
-    }
-    if (allDone) break;
-
-    // 4. Планировщик обновляет очереди
-    sched.onTick(tick);
-
-    // 5. Вытеснение
-    if (currentPid != -1 && sched.shouldPreempt(currentPid, tick)) {
-      Process* p = sched.find(currentPid);
-      if (p && !p->isFinished() && p->state == ProcessState::RUNNING) {
-        p->state = ProcessState::READY;
-        sched.onProcessPreempted(currentPid, tick);
-      }
-      currentPid = -1;
-    }
-
-    // 6. Выбор нового процесса
-    if (currentPid == -1) {
-      currentPid = sched.pickNext(tick);
-      if (currentPid != -1) {
-        Process* p = sched.find(currentPid);
-        if (p) {
-          if (!p->started) {
-		  p->started = true;
-		  p->startTime = tick;
-            p->responseTime = tick - p->arrivalTime;
-          }
-          p->state = ProcessState::RUNNING;
-          p->contextSwitches++;
-          if (prevPid != currentPid) res.contextSwitches++;
+    SimResult res;
+    res.algorithm = sched.name();
+    
+    auto& procs = sched.processes();
+    int currentPid = -1;
+    int prevPid = -1;
+    std::uint64_t busyTicks = 0;
+    std::uint64_t tick = 0;
+    
+    while (tick < maxTicks) {
+        for (auto& p : procs) {
+            if (p.state == ProcessState::WAITING && tick >= p.ioReturnTick) {
+                p.state = ProcessState::READY;
+                sched.onProcessReady(p.pid, tick);
+            }
         }
-      }
-    }
-
-    // 7. Выполняем один такт
-    int ranPid = -1;
-    if (currentPid != -1) {
-      Process* p = sched.find(currentPid);
-      if (p) {
-        // запомним, кто реально выполнялся в этом такте
-        ranPid = currentPid;
-
-        p->remainingTime--;
-        p->executedTicks++;
-        busyTicks++;
-        sched.onProcessRanTick(currentPid);
-
-        // Проверка I/O-блокировки
-        if (p->nextIoIndex < p->ioBlocks.size() &&
-            p->executedTicks == p->ioBlocks[p->nextIoIndex].atTick) {
-          p->state = ProcessState::WAITING;
-          p->ioReturnTick = tick + 1 + p->ioBlocks[p->nextIoIndex].duration;
-          p->ioWaitTime += p->ioBlocks[p->nextIoIndex].duration;
-          p->nextIoIndex++;
-          sched.onProcessBlocked(currentPid, tick);
-          currentPid = -1;
+        
+        bool allDone = true;
+        for (const auto& p : procs) {
+            if (!p.isFinished()) {
+                allDone = false;
+                break;
+            }
         }
-        // Проверка завершения
-        else if (p->isFinished()) {
-          p->finishTime = tick + 1;
-          p->turnaroundTime = p->finishTime - p->arrivalTime;
-          sched.onProcessFinished(currentPid, tick);
-          currentPid = -1;
+        if (allDone) break;
+        
+        sched.onTick(tick);
+        
+        if (currentPid != -1) {
+            if (sched.shouldPreempt(currentPid, tick)) {
+                Process* p = sched.find(currentPid);
+                if (p && p->state == ProcessState::RUNNING) {
+                    p->state = ProcessState::READY;
+                    sched.onProcessPreempted(currentPid, tick);
+                    currentPid = -1;
+                }
+            }
         }
-      }
-    }
-
-    // 8. Запись в диаграмму Ганта (по фактически выполнявшемуся процессу)
-    for (auto& p : procs) {
-      if (p.state == ProcessState::READY) {
-        p.waitingTime++;
-      }
-    }
-
-    if (ranPid != -1) {
-      if (!res.gantt.empty() && res.gantt.back().first == ranPid) {
-        res.gantt.back().second.second = tick + 1;
-      } else {
-        res.gantt.push_back({ranPid, {tick, tick + 1}});
-      }
-    } else {
-      // CPU простаивал
-      bool anyAlive = false;
-      for (auto& p : procs) {
-        if (p.state != ProcessState::TERMINATED) { anyAlive = true; break; }
-      }
-      if (anyAlive) {
-        if (!res.gantt.empty() && res.gantt.back().first == -1) {
-          res.gantt.back().second.second = tick + 1;
+        
+        if (currentPid == -1) {
+            currentPid = sched.pickNext(tick);
+            if (currentPid != -1) {
+                Process* p = sched.find(currentPid);
+                if (p) {
+                    p->state = ProcessState::RUNNING;
+                    if (!p->started) {
+                        p->started = true;
+                        p->startTime = tick;
+                        p->responseTime = p->startTime - p->arrivalTime; // Считаем responseTime сразу
+                    }
+                }
+            }
+        }
+        
+        int ranPid = -1;
+        if (currentPid != -1) {
+            Process* p = sched.find(currentPid);
+            if (p && p->state == ProcessState::RUNNING) {
+                ranPid = currentPid;
+                p->remainingTime--;
+                p->executedTicks++;
+                busyTicks++;
+                sched.onProcessRanTick(currentPid);
+                
+                if (p->nextIoIndex < p->ioBlocks.size() &&
+                    p->executedTicks == p->ioBlocks[p->nextIoIndex].atTick) {
+                    
+                    p->state = ProcessState::WAITING;
+                    p->ioReturnTick = tick + 1 + p->ioBlocks[p->nextIoIndex].duration;
+                    p->nextIoIndex++;
+                    sched.onProcessBlocked(currentPid, tick);
+                    currentPid = -1;
+                }
+                else if (p->remainingTime == 0) {
+                    p->state = ProcessState::TERMINATED;
+                    p->finishTime = tick + 1;
+                    p->turnaroundTime = p->finishTime - p->arrivalTime; // Считаем turnaroundTime сразу
+                    sched.onProcessFinished(currentPid, tick + 1);
+                    currentPid = -1;
+                }
+            }
+        }
+        
+        for (auto& p : procs) {
+            if (p.state == ProcessState::READY) {
+                p.waitingTime++;
+            }
+        }
+        
+        if (prevPid != currentPid && currentPid != -1) {
+            res.contextSwitches++;
+        }
+        
+        if (ranPid != -1) {
+            if (!res.gantt.empty() && res.gantt.back().first == ranPid) {
+                res.gantt.back().second.second = tick + 1;
+            } else {
+                res.gantt.push_back({ranPid, {tick, tick + 1}});
+            }
         } else {
-          res.gantt.push_back({-1, {tick, tick + 1}});
+            if (!res.gantt.empty() && res.gantt.back().first == -1) {
+                res.gantt.back().second.second = tick + 1;
+            } else {
+                res.gantt.push_back({-1, {tick, tick + 1}});
+            }
         }
-      }
+        
+        prevPid = currentPid;
+        tick++;
     }
-
-    prevPid = ranPid;
-    tick++;
-  }
-
-  // Метрики
-  double sumW = 0, sumT = 0, sumR = 0;
-  int finished = 0;
-  for (auto& p : procs) {
-    if (p.state == ProcessState::TERMINATED) {
-      sumW += p.waitingTime;
-      sumT += p.turnaroundTime;
-      sumR += p.responseTime;
-      finished++;
+    
+    double totalWait = 0, totalTurn = 0, totalResp = 0;
+    for (const auto& p : procs) {
+        totalWait += p.waitingTime;
+        totalTurn += p.turnaroundTime;
+        totalResp += p.responseTime;
     }
-  }
-  if (finished > 0) {
-    res.avgWaiting = sumW / finished;
-    res.avgTurnaround = sumT / finished;
-    res.avgResponse = sumR / finished;
-  }
-  res.totalTicks = tick;
-  res.cpuUtilization = tick > 0 ? 100.0 * busyTicks / tick : 0.0;
-  res.throughput = finished;
-
-  return res;
+    
+    res.avgWaiting = totalWait / procs.size();
+    res.avgTurnaround = totalTurn / procs.size();
+    res.avgResponse = totalResp / procs.size();
+    res.cpuUtilization = tick > 0 ? (100.0 * busyTicks / tick) : 0.0;
+    
+    return res;
 }
