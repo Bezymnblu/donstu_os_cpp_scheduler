@@ -71,29 +71,38 @@ int main() {
         MlfqScheduler mlfq(set); printResult(runSimulation(mlfq));
     }
 
-    // Задание 4: Эксперимент с накладными расходами переключения контекста
+    // Задание 4: Проверка накладных расходов в RR
     {
         std::cout << "\n=== Задание 4: Проверка накладных расходов в RR ===\n";
         std::cout << "Квант | wait (0) | turn (0) | wait (1) | turn (1) | CPU % (1) | overhead % (1)\n";
         std::cout << "--------------------------------------------------------------------------\n";
-        
         for (std::uint64_t q : {1, 2, 4, 8}) {
-            auto set0 = makeTestSet();
-            RrScheduler rr0(set0, q);
-            SimResult r0 = runSimulation(rr0, 100000, 0); // cost = 0
+            auto set0 = makeTestSet(); RrScheduler rr0(set0, q); SimResult r0 = runSimulation(rr0, 100000, 0);
+            auto set1 = makeTestSet(); RrScheduler rr1(set1, q); SimResult r1 = runSimulation(rr1, 100000, 1);
+            std::cout << std::setw(5) << q << " | " << std::fixed << std::setprecision(2)
+                      << std::setw(8) << r0.avgWaiting << " | " << std::setw(8) << r0.avgTurnaround << " | "
+                      << std::setw(8) << r1.avgWaiting << " | " << std::setw(8) << r1.avgTurnaround << " | "
+                      << std::setw(9) << r1.cpuUtilization << " | " << std::setw(14) << r1.overheadPercent << "\n";
+        }
+    }
+
+    // Задание 5: Влияние размера кванта в RR (стоимость переключения = 0)
+    {
+        std::cout << "\n=== Задание 5: Влияние кванта в RR (набор makeTestSet) ===\n";
+        std::cout << "q   wait   turn   resp   CS   график переключений\n";
+        std::cout << "------------------------------------------------------\n";
+        for (std::uint64_t q : {1, 2, 4, 8, 16}) {
+            auto set = makeTestSet();
+            RrScheduler rr(set, q);
+            SimResult r = runSimulation(rr, 100000, 0); // запуск с switchCost = 0
             
-            auto set1 = makeTestSet();
-            RrScheduler rr1(set1, q);
-            SimResult r1 = runSimulation(rr1, 100000, 1); // cost = 1
-            
-            std::cout << std::setw(5) << q << " | "
+            std::cout << std::setw(2) << q << "  " 
                       << std::fixed << std::setprecision(2)
-                      << std::setw(8) << r0.avgWaiting << " | "
-                      << std::setw(8) << r0.avgTurnaround << " | "
-                      << std::setw(8) << r1.avgWaiting << " | "
-                      << std::setw(8) << r1.avgTurnaround << " | "
-                      << std::setw(9) << r1.cpuUtilization << " | "
-                      << std::setw(14) << r1.overheadPercent << "\n";
+                      << std::setw(5) << r.avgWaiting << "  " 
+                      << std::setw(5) << r.avgTurnaround << "  " 
+                      << std::setw(5) << r.avgResponse << "  "
+                      << std::setw(3) << r.contextSwitches << "  "
+                      << std::string(r.contextSwitches, '#') << "\n";
         }
     }
 
