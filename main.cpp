@@ -3,6 +3,7 @@
 #include <memory>
 #include <iomanip>
 #include <functional>
+#include <string>
 #include "process.h"
 #include "simulator.h"
 #include "fcfs.h"
@@ -12,25 +13,38 @@
 #include "priority.h"
 #include "mlfq.h"
 #include "hrrn.h"
+#include "edf.h"
 #include "testsets.h"
 
 void printResultBasic(const SimResult& r) {
-    std::cout << std::left << std::setw(30) << r.algorithm << " | "
-              << "wait=" << std::fixed << std::setprecision(2) << std::setw(7) << r.avgWaiting << " | "
-              << "turn=" << std::setw(7) << r.avgTurnaround << " | "
-              << "resp=" << std::setw(7) << r.avgResponse << " | "
-              << "CPU=" << std::setw(7) << r.cpuUtilization << "%\n";
+    std::cout << std::left << std::setw(30) << r.algorithm << " | wait=" 
+              << std::fixed << std::setprecision(2) << std::setw(7) << r.avgWaiting 
+              << " | turn=" << std::setw(7) << r.avgTurnaround 
+              << " | resp=" << std::setw(7) << r.avgResponse 
+              << " | CPU=" << std::setw(7) << r.cpuUtilization << "%\n";
 }
 
 void printMultiCoreLine(std::string algo, std::string cores, const SimResult& r) {
-    std::cout << std::left << std::setw(15) << algo << " | "
-              << std::setw(6) << cores << " | "
-              << std::fixed << std::setprecision(2)
-              << std::right << std::setw(6) << r.avgWaiting << " | "
-              << std::setw(7) << r.avgTurnaround << " | "
-              << std::setw(6) << r.avgResponse << " | "
-              << std::setw(7) << r.cpuUtilization << "% | "
-              << std::left << r.totalTicks << "\n";
+    std::cout << std::left << std::setw(15) << algo << " | " << std::setw(6) << cores 
+              << " | " << std::fixed << std::setprecision(2) << std::right << std::setw(6) << r.avgWaiting 
+              << " | " << std::setw(7) << r.avgTurnaround << " | " << std::setw(6) << r.avgResponse 
+              << " | " << std::setw(7) << r.cpuUtilization << "% | " << std::left << r.totalTicks << "\n";
+}
+
+void printGanttWithNames(const SimResult& r, Scheduler& sched) {
+    std::cout << "Gantt (" << r.algorithm << "):\n";
+    for (const auto& interval : r.gantt) {
+        int pid = interval.first;
+        std::uint64_t start = interval.second.first;
+        std::uint64_t end = interval.second.second;
+        if (pid == -1) std::cout << "  [" << start << "-" << end << ") IDLE\n";
+        else if (pid == -2) std::cout << "  [" << start << "-" << end << ") CS\n";
+        else {
+            Process* p = sched.find(pid);
+            std::string name = p ? p->name : ("P" + std::to_string(pid));
+            std::cout << "  [" << start << "-" << end << ") " << name << "\n";
+        }
+    }
 }
 
 std::vector<Process> makeTestSet() {
@@ -56,7 +70,6 @@ std::vector<Process> makeConvoySet() {
     add(4, "CPU2", 3, 12, 3);
     return procs;
 }
-
 int main() {
     std::cout << "Case 1: CPU-bound\n";
     {
@@ -73,7 +86,41 @@ int main() {
         MlfqScheduler mlfq(set); printResultBasic(runSimulation(mlfq));
     }
 
-    // Задание 4
+    {
+        auto set = makeTestSet(); RrScheduler rr(set, 2); runSimulation(rr);
+        std::cout << "\nПо процессам, RR (q=2):\n"; printProcessTable(rr.processes());
+    }
+
+    {
+        auto set = makeTestSet(); saveSet("set_basic.txt", set);
+        std::vector<Process> loaded;
+        if (loadSet("set_basic.txt", loaded)) {
+            std::cout << "\nПроверка сохранения/загрузки:\n";
+            FcfsScheduler a(set), b(loaded);
+            printResultBasic(runSimulation(a)); printResultBasic(runSimulation(b));
+        }
+    }
+
+    {
+        std::cout << "\n=== Задание 3: Сравнение SJF и HRRN ===\n";
+        auto makeHrrnSet = []() {
+            std::vector<Process> procs;
+            auto add = [&](int pid, std::string name, std::uint64_t arr, std::uint64_t burst) {
+                Process p; p.pid = pid; p.name = name; p.arrivalTime = arr;
+                p.burstTime = burst; p.remainingTime = burst; p.priority = 1; p.dynamicPriority = 1;
+                procs.push_back(p);
+            };
+            add(1, "A", 0, 4); add(2, "L", 1, 6); add(3, "S1", 4, 2); add(4, "S2", 5, 1);
+            return procs;
+        };
+        auto setSjf = makeHrrnSet(); SjfScheduler sjf(setSjf);
+        std::cout << "--- Вывод SJF ---:\n"; SimResult rSjf = runSimulation(sjf);
+        printResultBasic(rSjf); printGanttWithNames(rSjf, sjf);
+
+        auto setHrrn = makeHrrnSet(); HrrnScheduler hrrn(setHrrn);
+        std::cout << "\n--- Вывод HRRN ---:\n"; SimResult rHrrn = runSimulation(hrrn);
+        printResultBasic(rHrrn); printGanttWithNames(rHrrn, hrrn);
+    }
     {
         std::cout << "\n=== Задание 4: Проверка накладных расходов в RR ===\n";
         std::cout << "Квант | wait (0) | turn (0) | wait (1) | turn (1) | CPU % (1) | overhead % (1)\n";
@@ -88,7 +135,6 @@ int main() {
         }
     }
 
-    // Задание 5
     {
         std::cout << "\n=== Задание 5: Влияние кванта в RR ===\n";
         std::cout << "q   wait   turn   resp   CS   график переключений\n";
@@ -102,21 +148,19 @@ int main() {
         }
     }
 
-    // Задание 6
     {
         std::cout << "\n=== Задание 6: Исследование эффекта конвоя ===\n";
-        auto runAndPrint = [&](std::string label, auto make_sched) {
+        auto runConvoy = [&](auto make_sched) {
             auto set = makeConvoySet(); auto sched = make_sched(set); SimResult r = runSimulation(*sched, 100000, 0);
-            std::cout << std::left << std::setw(30) << label << " | wait=" << std::fixed << std::setprecision(2) << std::setw(6) << r.avgWaiting << " | turn=" << std::setw(6) << r.avgTurnaround << "%\n";
+            printResultBasic(r);
         };
-        runAndPrint("FCFS", [](auto& s) { return std::make_unique<FcfsScheduler>(s); });
-        runAndPrint("SRTN", [](auto& s) { return std::make_unique<SrtnScheduler>(s); });
-        runAndPrint("RR (q=4)", [](auto& s) { return std::make_unique<RrScheduler>(s, 4); });
-        runAndPrint("Priority (preemptive) + aging", [](auto& s) { return std::make_unique<PriorityScheduler>(s, true, true); });
-        runAndPrint("MLFQ", [](auto& s) { return std::make_unique<MlfqScheduler>(s); });
+        runConvoy([](auto& s) { return std::make_unique<FcfsScheduler>(s); });
+        runConvoy([](auto& s) { return std::make_unique<SrtnScheduler>(s); });
+        runConvoy([](auto& s) { return std::make_unique<RrScheduler>(s, 4); });
+        runConvoy([](auto& s) { return std::make_unique<PriorityScheduler>(s, true, true); });
+        runConvoy([](auto& s) { return std::make_unique<MlfqScheduler>(s); });
     }
 
-    // Задание 10
     {
         std::cout << "\n=== Задание 10: Сводное сравнение среднего времени ожидания ===\n";
         using Factory = std::function<std::unique_ptr<Scheduler>(const std::vector<Process>&)>;
@@ -132,6 +176,7 @@ int main() {
         };
         const int sizes[] = {12, 14, 16, 18, 20};
         std::cout << std::left << std::setw(12) << "Algorithm" << std::right << std::setw(9) << "set 1" << std::setw(9) << "set 2" << std::setw(9) << "set 3" << std::setw(9) << "set 4" << std::setw(9) << "set 5" << std::setw(9) << "average" << "\n";
+        std::cout << "----------------------------------------------------------------------\n";
         for (auto& [label, make] : algos) {
             std::cout << std::left << std::setw(12) << label << std::right; double sum = 0;
             for (unsigned seed = 1; seed <= 5; ++seed) {
@@ -141,33 +186,50 @@ int main() {
             std::cout << std::setw(9) << sum / 5 << "\n";
         }
     }
-
-    // Задание 7: Многоядерный режим (Строго по скриншотам!)
     {
         std::cout << "\n=== Задание 7: Результаты многоядерного моделирования ===\n\n";
-        std::cout << std::left << std::setw(15) << "Алгоритм" << " | "
-                  << std::setw(6) << "Ядра" << " | "
-                  << std::setw(6) << "wait" << " | "
-                  << std::setw(7) << "turn" << " | "
-                  << std::setw(6) << "resp" << " | "
-                  << std::setw(8) << "CPU %" << " | "
-                  << "всего тактов\n";
+        std::cout << std::left << std::setw(15) << "Алгоритм" << " | " << std::setw(6) << "Ядра" << " | " << std::setw(6) << "wait" << " | " << std::setw(7) << "turn" << " | " << std::setw(6) << "resp" << " | " << std::setw(8) << "CPU %" << " | " << "всего тактов\n";
         std::cout << "----------------------------------------------------------------------------------\n";
-
-        // Первая таблица на скрине: FCFS
         auto f1 = makeTestSet(); FcfsScheduler fcfs1(f1); printMultiCoreLine("FCFS", "1", runSimulationMulti(fcfs1, 1));
         auto f2 = makeTestSet(); FcfsScheduler fcfs2(f2); printMultiCoreLine("FCFS", "2", runSimulationMulti(fcfs2, 2));
         auto f4 = makeTestSet(); FcfsScheduler fcfs4(f4); printMultiCoreLine("FCFS", "4", runSimulationMulti(fcfs4, 4));
-        
         std::cout << "----------------------------------------------------------------------------------\n";
-
-        // Вторая таблица на скрине: SJF + SRTN
         auto s1 = makeTestSet(); SjfScheduler sjf1(s1);   printMultiCoreLine("SJF", "1", runSimulationMulti(sjf1, 1));
         auto s2 = makeTestSet(); SjfScheduler sjf2(s2);   printMultiCoreLine("SJF", "2", runSimulationMulti(sjf2, 2));
         auto s4 = makeTestSet(); SjfScheduler sjf4(s4);   printMultiCoreLine("SJF", "4", runSimulationMulti(sjf4, 4));
         auto sr2 = makeTestSet(); SrtnScheduler srtn2(sr2); printMultiCoreLine("SRTN", "2", runSimulationMulti(srtn2, 2));
-        
         std::cout << "----------------------------------------------------------------------------------\n";
+    }
+
+    {
+        std::cout << "\n=== Задание 12: Планирование реального времени EDF ===\n\n";
+        auto runEdf = [](const std::string& name, std::vector<Process> set) {
+            EdfScheduler edf(set); SimResult r = runSimulation(edf);
+            std::cout << "Набор " << name << ":";
+            for (const auto& interval : r.gantt) {
+                if (interval.first >= 1) {
+                    std::cout << " " << name << interval.first << "[" << interval.second.first << "-" << interval.second.second << ")";
+                }
+            }
+            std::cout << "\n";
+            for (const auto& p : edf.processes()) {
+                std::cout << "  " << p.name << ": finish=" << p.finishTime << " deadline=" << p.deadline 
+                          << (p.finishTime <= p.deadline ? "   OK\n" : "   MISSED\n");
+            }
+        };
+        std::vector<Process> setE;
+        auto addE = [&](int id, std::string n, uint64_t a, uint64_t b, uint64_t d) {
+            Process p; p.pid = id; p.name = n; p.arrivalTime = a; p.burstTime = b; p.remainingTime = b; p.deadline = d; setE.push_back(p);
+        };
+        addE(1, "E1", 0, 3, 7); addE(2, "E2", 1, 2, 4); addE(3, "E3", 5, 2, 9); addE(4, "E4", 7, 3, 10);
+        runEdf("E", setE); std::cout << "\n";
+
+        std::vector<Process> setF;
+        auto addF = [&](int id, std::string n, uint64_t a, uint64_t b, uint64_t d) {
+            Process p; p.pid = id; p.name = n; p.arrivalTime = a; p.burstTime = b; p.remainingTime = b; p.deadline = d; setF.push_back(p);
+        };
+        addF(1, "F1", 0, 4, 5); addF(2, "F2", 4, 3, 5); addF(3, "F3", 4, 2, 6);
+        runEdf("F", setF);
     }
 
     return 0;
