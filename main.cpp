@@ -21,7 +21,6 @@ void printResult(const SimResult& r) {
               << "CPU=" << std::setw(7) << r.cpuUtilization << "%\n";
 }
 
-// Новая умная функция вывода диаграммы Ганта, которая знает имена процессов
 void printGanttWithNames(const SimResult& r, Scheduler& sched) {
     std::cout << "Gantt (" << r.algorithm << "):\n";
     for (const auto& interval : r.gantt) {
@@ -72,55 +71,30 @@ int main() {
         MlfqScheduler mlfq(set); printResult(runSimulation(mlfq));
     }
 
+    // Задание 4: Эксперимент с накладными расходами переключения контекста
     {
-        auto set = makeTestSet();
-        RrScheduler rr(set, 2);
-        runSimulation(rr);
-        std::cout << "\nПо процессам, RR (q=2):\n";
-        printProcessTable(rr.processes());
-    }
-
-    {
-        auto set = makeTestSet();
-        saveSet("set_basic.txt", set);
-        std::vector<Process> loaded;
-        if (loadSet("set_basic.txt", loaded)) {
-            std::cout << "\nПроверка сохранения/загрузки:\n";
-            FcfsScheduler a(set), b(loaded);
-            printResult(runSimulation(a));
-            printResult(runSimulation(b));
+        std::cout << "\n=== Задание 4: Проверка накладных расходов в RR ===\n";
+        std::cout << "Квант | wait (0) | turn (0) | wait (1) | turn (1) | CPU % (1) | overhead % (1)\n";
+        std::cout << "--------------------------------------------------------------------------\n";
+        
+        for (std::uint64_t q : {1, 2, 4, 8}) {
+            auto set0 = makeTestSet();
+            RrScheduler rr0(set0, q);
+            SimResult r0 = runSimulation(rr0, 100000, 0); // cost = 0
+            
+            auto set1 = makeTestSet();
+            RrScheduler rr1(set1, q);
+            SimResult r1 = runSimulation(rr1, 100000, 1); // cost = 1
+            
+            std::cout << std::setw(5) << q << " | "
+                      << std::fixed << std::setprecision(2)
+                      << std::setw(8) << r0.avgWaiting << " | "
+                      << std::setw(8) << r0.avgTurnaround << " | "
+                      << std::setw(8) << r1.avgWaiting << " | "
+                      << std::setw(8) << r1.avgTurnaround << " | "
+                      << std::setw(9) << r1.cpuUtilization << " | "
+                      << std::setw(14) << r1.overheadPercent << "\n";
         }
-    }
-
-    {
-        std::cout << "\n=== Сравнение SJF и HRRN ===\n";
-        auto makeHrrnSet = []() {
-            std::vector<Process> procs;
-            auto add = [&](int pid, std::string name, std::uint64_t arr, std::uint64_t burst) {
-                Process p; p.pid = pid; p.name = name; p.arrivalTime = arr;
-                p.burstTime = burst; p.remainingTime = burst; p.priority = 1; p.dynamicPriority = 1;
-                procs.push_back(p);
-            };
-            add(1, "A", 0, 4);
-            add(2, "L", 1, 6);
-            add(3, "S1", 4, 2);
-            add(4, "S2", 5, 1);
-            return procs;
-        };
-
-        auto setSjf = makeHrrnSet();
-        SjfScheduler sjf(setSjf);
-        std::cout << "--- Вывод SJF ---:\n";
-        SimResult rSjf = runSimulation(sjf);
-        printResult(rSjf);
-        printGanttWithNames(rSjf, sjf);
-
-        auto setHrrn = makeHrrnSet();
-        HrrnScheduler hrrn(setHrrn);
-        std::cout << "\n--- Вывод HRRN ---:\n";
-        SimResult rHrrn = runSimulation(hrrn);
-        printResult(rHrrn);
-        printGanttWithNames(rHrrn, hrrn);
     }
 
     return 0;
